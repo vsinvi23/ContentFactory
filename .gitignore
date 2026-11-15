@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Chrome Profiles & Sessions
+chrome_profile/
+*.session
+
+# Downloads & Course Cache
+download/
+downloads/
+
+# OS Specific
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
