@@ -14,10 +14,6 @@ ENV/
 chrome_profile/
 *.session
 
-# Downloads & Course Cache
-download/
-downloads/
-
 # OS Specific
 .DS_Store
 Thumbs.db
@@ -25,3 +21,4 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
+

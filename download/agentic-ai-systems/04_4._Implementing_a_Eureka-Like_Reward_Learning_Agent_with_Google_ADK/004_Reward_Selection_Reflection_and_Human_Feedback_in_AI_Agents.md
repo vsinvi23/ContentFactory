@@ -1,0 +1,1148 @@
+# Reward_Selection_Reflection_and_Human_Feedback_in_AI_Agents
+
+Source: https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback
+
+---
+
+[Home](https://www.educative.io/)
+
+[Courses](https://www.educative.io/search?tab=courses)
+
+[Agentic System Design](https://www.educative.io/courses/agentic-ai-systems)
+
+# Selection, Reflection, and Human Feedback
+
+Explore the process of selecting the best reward function from multiple candidates using evidence-based rules. Understand how reflection agents analyze and provide structured feedback on reward performance. Learn how to incorporate optional human feedback to guide iterations and apply early-exit criteria to optimize computational resources. This lesson helps you manage iterative reward learning cycles to enhance autonomous agent behavior effectively.
+
+We'll cover the following...
+
+- [Selecting the best reward candidate](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#Selecting-the-best-reward-candidate)
+- [Reflecting on reward performance](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#Reflecting-on-reward-performance)
+- [Adding human feedback and stopping the loop](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#Adding-human-feedback-and-stopping-the-loop)
+  - [HumanReflectionAgent](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#HumanReflectionAgent)
+  - [ExitCheckerAgent](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#ExitCheckerAgent)
+  - [Advancing the loop state](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#Advancing-the-loop-state)
+- [Summary](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#Summary)
+
+In the previous lesson, the system finished evaluating reward candidates. For the current iteration, we have multiple trained policies, quantitative metrics, rollout visualizations, and a structured summary in `ctx.session.state["candidate_results"]`.
+
+At this stage, the system must answer a simple but critical question:
+
+> Which reward should we carry forward?
+
+That responsibility belongs to the SelectorAgent.
+
+## Selecting the best reward candidate[#](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#Selecting-the-best-reward-candidate)
+
+Reward selection is implemented in `agents/selector_agent.py`. This agent neither trains policies nor generates rewards. Its sole purpose is to:
+
+- Read evaluation results.
+- Apply a selection rule.
+- Update the shared state with the chosen “best” reward.
+
+Start by opening the file and reviewing the agent’s dependencies. We’ll start with the imports:
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+import json
+
+from loguru import logger
+
+from typing import AsyncGenerator
+
+from google.adk.agents import BaseAgent
+
+from google.adk.agents.invocation\_context import InvocationContext
+
+from google.adk.events import Event
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+From these imports alone, we can infer the agent’s role:
+
+- It reads structured data (`json`).
+- It does not depend on training or environment tools.
+- It interacts only with the shared state and ADK.
+
+This is intentional. Selection should be lightweight and deterministic.
+
+Next, we define the SelectorAgent:
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+class SelectorAgent(BaseAgent):
+
+async def \_run\_async\_impl(
+
+self, ctx: InvocationContext
+
+) -> AsyncGenerator[Event, None]:
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+As with previous agents, this is an ADK agent executed inside the loop and driven entirely by shared state. By the time this agent runs, the evaluation for the iteration has already been completed.
+
+The first thing the SelectorAgent does is retrieve evaluation results.
+
+Ace Editor
+
+1
+
+2
+
+candidate\_results\_json = ctx.session.state["candidate\_results"]
+
+candidate\_results = json.loads(candidate\_results\_json)
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+This is why we stored results as JSON in the previous lesson: it’s serializable, stable across agents, and easy to inspect or log.
+
+At this point, `candidate_results` is a list of dictionaries, one per candidate, containing scores, metrics, artifact paths, and reward code.
+
+Next, we select the candidate with the highest score.
+
+Ace Editor
+
+1
+
+best = max(candidate\_results, key=lambda x: x["score"])
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+This line reflects a deliberate design choice: selection is purely evidence-based, with no heuristics, learned weighting, or LLM involvement. The selector trusts the evaluator’s scoring function and makes a clear, reproducible decision.
+
+Once a winner is chosen, we extract what downstream agents need.
+
+Ace Editor
+
+1
+
+2
+
+3
+
+best\_reward\_code = best["reward\_code"]
+
+best\_score = best["score"]
+
+best\_candidate\_id = best["candidate"]
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+This is the minimal information required to support reflection, seed the next iteration, and log progress.
+
+Now we update the shared state so that later agents can build on this decision.
+
+Ace Editor
+
+1
+
+2
+
+3
+
+ctx.session.state["best\_reward\_code"] = best\_reward\_code
+
+ctx.session.state["best\_score"] = best\_score
+
+ctx.session.state["best\_candidate\_id"] = best\_candidate\_id
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+From this point on, the system has a current best reward, reflection agents can analyze it, and the next iteration can improve on it.
+
+Finally, we log the outcome for inspection.
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+logger.info(
+
+f"[SelectorAgent] Selected candidate {best\_candidate\_id} "
+
+f"with score={best\_score:.4f}"
+
+)
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+This log entry becomes part of the execution trace that we inspected in the first lesson of this chapter.
+
+As with all ADK agents, we signal completion by yielding an event.
+
+Ace Editor
+
+1
+
+yield Event(author=self.name, content=None)
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+At this point, selection is complete.
+
+We’ll implement the RewardReflectionAgent, which analyzes why the selected reward worked (or partially failed) and generates structured feedback for the next iteration.
+
+## Reflecting on reward performance[#](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#Reflecting-on-reward-performance)
+
+After selection, the system knows which reward performed best, but it does not yet know why it worked or what should change next. That gap is filled by the RewardReflectionAgent. **Reflection** turns raw performance numbers into actionable guidance for the next iteration of reward generation.
+
+Reward reflection is implemented in the same file as reward generation: `agents/llm_agents.py`.
+
+In this file, the reflection logic is defined as a separate LLM-based agent. Although it uses the same model backend, its role is very different from the RewardDesigner.
+
+Let’s open the reflection agent and read it with a clear goal in mind:
+
+> This agent does not generate new rewards.  
+> It analyzes evidence and produces structured feedback.
+
+We start with the reflection agent definition:
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+class RewardReflectorOpenAIAgent(BaseAgent):
+
+\_model: str = PrivateAttr()
+
+def \_\_init\_\_(self, model="gpt-4o-mini", \*\*kwargs):
+
+super().\_\_init\_\_(name="RewardReflectorOpenAIAgent", \*\*kwargs)
+
+self.\_model = model
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+As with the RewardDesigner, this is an ADK agent. Model configuration is stored as a private attribute, and execution is driven by shared state. What differs is the information it consumes and produces.
+
+Inside `_run_async_impl(...)`, the agent immediately reads what it needs from the shared state.
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+async def \_run\_async\_impl(
+
+self, ctx: InvocationContext
+
+) -> AsyncGenerator[Event, None]:
+
+iteration = ctx.session.state["iteration"]
+
+best\_reward\_code = ctx.session.state["best\_reward\_code"]
+
+candidate\_results = ctx.session.state["candidate\_results"]
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+From this alone, we can infer the reflection agent’s inputs:
+
+- The selected reward
+- The full evaluation results from all candidates
+
+Reflection is global, not local to the winner alone. Notice that we pass *all candidate results*, not just the best one. This is intentional. Reflection works best when it can answer questions like these:
+
+- What did the best reward do differently?
+- What patterns appear in failed candidates?
+- Were there trade-offs between speed and stability?
+
+Those insights are only possible if the reflector sees the entire landscape of results.
+
+Next, the agent builds a prompt that asks the LLM to analyze behavior, not generate code.
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+10
+
+11
+
+12
+
+13
+
+14
+
+15
+
+16
+
+prompt = f"""
+
+You are analyzing the results of reward function optimization for a reinforcement learning task.
+
+BEST REWARD FUNCTION:
+
+{best\_reward\_code}
+
+CANDIDATE RESULTS (JSON):
+
+{candidate\_results}
+
+Your task:
+
+- Identify why the best reward performed well
+
+- Identify weaknesses or unintended behaviors
+
+- Compare with failed or weaker candidates
+
+- Suggest concrete improvements to the reward design
+
+- Focus on reward shaping, not policy architecture
+
+"""
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+When implementing this, notice the shift in instruction style:
+
+- No formatting rules
+- No code constraints
+- No delimiter enforcement
+
+That’s because reflection output is textual guidance, not executable code.
+
+As with reward generation, we call the model via the OpenAI client.
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+response = client.chat.completions.create(
+
+model=self.\_model,
+
+messages=[
+
+{"role": "system", "content": "You are a reinforcement learning reward analysis expert."},
+
+{"role": "user", "content": prompt},
+
+],
+
+temperature=0.2,
+
+)
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+Two implementation details matter here:
+
+- We use a lower temperature than in reward generation.
+- We bias the system prompt toward analysis, not creativity.
+
+Reflection should be conservative and evidence-driven.
+
+Once the model responds, we extract the text and store it.
+
+Ace Editor
+
+1
+
+2
+
+reflection\_text = response.choices[0].message.content
+
+ctx.session.state["reflection"] = reflection\_text
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+This is the reflection agent’s output contract.
+
+From here on:
+
+- The next reward-generation step can incorporate this feedback.
+- The system maintains a memory of why changes are made.
+
+Finally, we log that the reflection is complete and yield control back to ADK.
+
+Ace Editor
+
+1
+
+2
+
+logger.info("[RewardReflectorOpenAIAgent] Reflection generated")
+
+yield Event(author=self.name, content=None)
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+At this point, the system has everything it needs to either generate improved reward candidates or decide to stop iterating.
+
+With reflection in place, the system is no longer optimizing blindly. It now has empirical results (from evaluation), a selected reward (from selection), and a structured explanation of what worked and what didn’t.
+
+This mirrors the core idea behind Eureka:
+
+> Improvement is guided by reasoning over evidence, not random mutation.
+
+At this point in the iteration, we have the selected best reward (SelectorAgent) and an LLM-written reflection stored in `ctx.session.state["reflection"]`.
+
+Next, we add two practical pieces that make the system usable in real runs:
+
+- A human-in-the-loop hook to refine the reflection before the next iteration.
+- An exit check so the loop can stop early when progress stalls or a target return is reached.
+
+## Adding human feedback and stopping the loop[#](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#Adding-human-feedback-and-stopping-the-loop)
+
+We’ll implement these using:
+
+- `agents/human_reflection_agent.py`
+- `agents/exit_checker_agent.py`
+- `agents/exit_tool.py`
+
+### HumanReflectionAgent[#](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#HumanReflectionAgent)
+
+This agent runs *after* the LLM reflector. Its job is simple:
+
+- Show the reflection (and a small summary).
+- Optionally collect human feedback.
+- Combine it with the LLM reflection.
+- Write the final version back into `ctx.session.state["reflection"]`.
+
+We start with the agent entry point and read what we need:
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+class HumanReflectionAgent(BaseAgent):
+
+async def \_run\_async\_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+
+iteration = ctx.session.state.get("iteration", 1)
+
+llm\_reflection = ctx.session.state.get("reflection", "")
+
+best\_reward\_code = ctx.session.state.get("best\_reward\_code", "")
+
+best\_return = ctx.session.state.get("best\_return", None)
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+Read this like an implementer:
+
+- This agent assumes that reflection already ran (`reflection` exists in state).
+- It also reads `best_reward_code` and `best_return` only to provide context to the human.
+
+We skip cleanly if there's no reflection to refine:
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+if not llm\_reflection:
+
+logger.warning("[HumanReflectionAgent] No LLM reflection found. Skipping human reflection.")
+
+yield Event(author=self.name, content=None)
+
+return
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+This keeps the pipeline resilient. If reflection fails or is disabled, the absence of human feedback does not block execution.
+
+The next block is deliberately verbose in logs because the UI here is the terminal:
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+logger.info("[HumanReflectionAgent] LLM-GENERATED REFLECTION SUMMARY:")
+
+...
+
+for line in llm\_reflection.split('\n'):
+
+logger.info(line)
+
+...
+
+logger.info("[HumanReflectionAgent] HUMAN FEEDBACK PROMPT:")
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+The key implementation idea: human feedback is optional, but when it exists, it becomes part of the iteration context.
+
+This agent is designed to work even when stdin is not interactive (common in notebook and automation contexts):
+
+Ace Editor
+
+1
+
+2
+
+3
+
+if not sys.stdin.isatty():
+
+logger.info("[HumanReflectionAgent] stdin is not a TTY (non-interactive). Skipping human feedback.")
+
+human\_feedback = ""
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+So the agent never "hangs" waiting for input in non-interactive environments.
+
+The agent attempts to read feedback with a 30-second timeout:
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+human\_feedback = await asyncio.wait\_for(
+
+loop.run\_in\_executor(None, read\_user\_input),
+
+timeout=30.0
+
+)
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+This is a pragmatic choice. It keeps the run moving even if the user is not actively monitoring it.
+
+If the human provides feedback, we append it in a clearly marked section:
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+combined\_reflection = f"""{llm\_reflection}
+
+=== HUMAN FEEDBACK ===
+
+{human\_feedback}
+
+"""
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+Then we update the shared state:
+
+Ace Editor
+
+1
+
+2
+
+ctx.session.state["reflection"] = combined\_reflection
+
+ctx.session.state["human\_reflection"] = human\_feedback if human\_feedback and human\_feedback.lower() != 'skip' else ""
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+This is the handoff point:
+
+> The next iterations RewardDesigner will read `ctx.session.state["reflection"]` and incorporate this combined feedback.
+
+### ExitCheckerAgent[#](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#ExitCheckerAgent)
+
+Once selection and reflection are complete, we need a decision: continue iterating or stop. This agent evaluates early-exit criteria using values in the shared state:
+
+- `return_threshold`
+- `plateau_delta`
+- `plateau_patience`
+
+We read the current performance and exit parameters:
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+10
+
+class ExitCheckerAgent(BaseAgent):
+
+async def \_run\_async\_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+
+best\_return = ctx.session.state.get("best\_return", None)
+
+if best\_return is None:
+
+yield Event(author=self.name, content=None)
+
+return
+
+threshold = ctx.session.state["return\_threshold"]
+
+delta = ctx.session.state["plateau\_delta"]
+
+patience = ctx.session.state["plateau\_patience"]
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+Implementation intent:
+
+- If we don't yet have a `best_return`, we can't reason about progress, so we skip.
+- Otherwise, we read exit criteria from the config-driven state (not hard-coded).
+
+Next, we track plateau behavior across iterations:
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+10
+
+11
+
+prev = ctx.session.state.get("prev\_best\_return", None)
+
+if prev is not None:
+
+improvement = best\_return - prev
+
+if improvement < delta:
+
+ctx.session.state["plateau\_count"] = ctx.session.state.get("plateau\_count", 0) + 1
+
+else:
+
+ctx.session.state["plateau\_count"] = 0
+
+ctx.session.state["prev\_best\_return"] = best\_return
+
+plateau\_count = ctx.session.state.get("plateau\_count", 0)
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+This is a classic patience mechanism:
+
+- If the improvement is smaller than `delta`, count it as no meaningful progress.
+- If we get a meaningful improvement, reset the plateau counter.
+
+The agent then applies a practical exit policy:
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+10
+
+11
+
+12
+
+13
+
+should\_exit = False
+
+exit\_reason = ""
+
+if best\_return >= threshold:
+
+if plateau\_count >= patience:
+
+should\_exit = True
+
+exit\_reason = f"Reached threshold ({best\_return:.2f} >= {threshold}) and plateaued ({plateau\_count} >= {patience})"
+
+elif best\_return >= threshold \* 1.1:
+
+should\_exit = True
+
+exit\_reason = f"Significantly exceeded threshold ({best\_return:.2f} >= {threshold \* 1.1:.2f})"
+
+elif plateau\_count >= patience and best\_return > 0:
+
+should\_exit = True
+
+exit\_reason = f"Performance plateaued ({plateau\_count} >= {patience}) with return {best\_return:.2f}"
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+Read this as three ways to stop:
+
+1. Threshold reached + plateaued (stable "good enough")
+2. Far above threshold (stop immediately)
+3. Plateau at positive performance (avoid wasting compute when progress stalls)
+
+When the agent decides to exit, it escalates via `ToolContext`:
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+if should\_exit:
+
+logger.info(f"[ExitCheckerAgent] Exiting loop: {exit\_reason}")
+
+tc = ToolContext(agent\_name=self.name)
+
+exit\_loop(tc)
+
+yield Event(author=self.name, actions=tc.actions)
+
+return
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+This is how the agent communicates “stop the loop” back to ADK.
+
+The exit tool is intentionally tiny. It flips the ADK action flag that causes the loop to terminate.
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+5
+
+def exit\_loop(tool\_context: ToolContext):
+
+"""Call to stop the LoopAgent when criteria is met."""
+
+print(f"[Tool Call] exit\_loop triggered by {tool\_context.agent\_name}")
+
+tool\_context.actions.escalate = True
+
+return {}
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+Implementation intent:
+
+- Agents decide when to stop.
+- The tool encodes how stopping is expressed in ADK terms (`actions.escalate = True`).
+
+### Advancing the loop state[#](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#Advancing-the-loop-state)
+
+At this point, the iteration has produced all available outputs. Reward candidates were evaluated, the best reward was selected, reflection and optional human feedback were generated, and the exit checker may have signaled termination.
+
+If the loop continues, we need one final step:
+
+> Advance the iteration state cleanly so the next cycle starts with the right context.
+
+That’s what the IncrementIterationAgent does.
+
+It lives in `agents/increment_iteration_agent.py`. This agent is intentionally simple: it doesn’t run training, doesn’t call the LLM, and doesn’t score anything. It only updates the shared state to prepare for the next loop pass.
+
+This is a standard ADK agent:
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+10
+
+11
+
+12
+
+from google.adk.agents import BaseAgent
+
+from google.adk.agents.invocation\_context import InvocationContext
+
+from google.adk.events import Event
+
+from typing import AsyncGenerator
+
+from loguru import logger
+
+class IncrementIterationAgent(BaseAgent):
+
+async def \_run\_async\_impl(
+
+self, ctx: InvocationContext
+
+) -> AsyncGenerator[Event, None]:
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+The interesting part is not the signature; it’s what state it touches.
+
+We read the current iteration and increment it:
+
+Ace Editor
+
+1
+
+2
+
+3
+
+current\_iteration = ctx.session.state.get("iteration", 0)
+
+next\_iteration = current\_iteration + 1
+
+ctx.session.state["iteration"] = next\_iteration
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+Two implementation choices to notice:
+
+- We default to `0` if the key is missing. That keeps the agent robust if it’s tested independently.
+- We write the new value back into the shared state immediately; this becomes the iteration ID used by all downstream agents in the next cycle.
+
+When starting a new iteration, some fields must *not* carry forward. The most important examples are:
+
+- Raw candidate output produced by the RewardDesigner
+- Candidate evaluation results from the evaluator
+
+Those must be regenerated each iteration, so we clear them:
+
+Ace Editor
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+for k in [
+
+"reward\_candidates\_text",
+
+"candidate\_results",
+
+"llm\_output\_error",
+
+]:
+
+if k in ctx.session.state:
+
+ctx.session.state.pop(k, None)
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+Read this as protection against subtle bugs:
+
+> If we forget to clear `candidate_results`, the selector or reflector could reuse last iteration’s scores while thinking they’re fresh.
+
+This agent prevents that entire class of error.
+
+Notice what we do not clear:
+
+- `best_reward_code`
+- `best_score` / `best_return`
+- `reflection`
+- environment, task spec, output dir, configs
+
+These fields are intentionally persistent because they form the “memory” that enables improvement. In other words, we reset evidence (iteration-scoped outputs), we preserve context (task/env/config), and we preserve progress state (best reward + reflection).
+
+Finally, this log entry is what you’ll see in the execution logs between iteration blocks, and it helps confirm that the loop is progressing as expected.
+
+Ace Editor
+
+1
+
+2
+
+logger.info(f"[IncrementIterationAgent] Advanced iteration {current\_iteration} -> {next\_iteration}")
+
+yield Event(author=self.name, content=None)
+
+הההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההההה
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+By adding the IncrementIterationAgent, we make iteration behavior predictable. The loop advances cleanly, stale candidate evidence is cleared, persistent context is preserved, and the next iteration starts with the exact state that the RewardDesigner expects.
+
+At this point, the loop is complete:
+
+Generate → evaluate → select → reflect → optional human input → exit check → increment
+
+## Summary[#](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#Summary)
+
+In this lesson, we covered the decision-making layer of the EUREKA-like reward-learning system. This included:
+
+- How evaluated reward candidates are compared and selected using a deterministic, evidence-based rule.
+- How reflection is generated from full iteration results to explain why a reward performed well or poorly.
+- How optional human feedback can be injected to guide the next iteration.
+- How early-exit criteria prevent wasted computation when progress plateaus or performance is sufficient.
+- How the iteration state is advanced cleanly so learning can continue without carrying stale evidence.
+
+With this lesson, the reward evolution loop is now fully functional: it can generate, evaluate, decide, reflect, and iterate.
+
+In the next lesson, we will step back and look at the complete system running end-to-end. We will focus on how the loop is orchestrated as a whole, how outputs and artifacts accumulate across iterations, and how to interpret learning progress through logs and visualizations. This will tie together all the agents we've implemented into a single, coherent execution flow.
+
+Reward Generation and Evaluation Loop
+
+Loop Control, Exit Conditions, and System Behavior
+
+Ask
+
+[Selecting the best reward candidate](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#Selecting-the-best-reward-candidate)
+
+[Reflecting on reward performance](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#Reflecting-on-reward-performance)
+
+[Adding human feedback and stopping the loop](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#Adding-human-feedback-and-stopping-the-loop)
+
+[HumanReflectionAgent](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#HumanReflectionAgent)
+
+[ExitCheckerAgent](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#ExitCheckerAgent)
+
+[Advancing the loop state](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#Advancing-the-loop-state)
+
+[Summary](https://www.educative.io/courses/agentic-ai-systems/selection-reflection-and-human-feedback#Summary)
